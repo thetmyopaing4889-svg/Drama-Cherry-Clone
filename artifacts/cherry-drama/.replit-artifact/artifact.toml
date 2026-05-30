@@ -1,5 +1,5 @@
 kind = "web"
-previewPath = "/cherry-drama"
+previewPath = "/"
 title = "Cherry Drama"
 version = "1.0.0"
 id = "artifacts/cherry-drama"
@@ -11,7 +11,7 @@ version = "1.0.0"
 
 [[services]]
 name = "web"
-paths = [ "/cherry-drama" ]
+paths = [ "/" ]
 localPort = 18262
 
 [services.development]
@@ -23,9 +23,9 @@ publicDir = "artifacts/cherry-drama/dist/public"
 serve = "static"
 
 [[services.production.rewrites]]
-from = "/cherry-drama/*"
-to = "/cherry-drama/index.html"
+from = "/*"
+to = "/index.html"
 
 [services.env]
 PORT = "18262"
-BASE_PATH = "/cherry-drama"
+BASE_PATH = "/"
