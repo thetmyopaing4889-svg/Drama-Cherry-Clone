@@ -74,10 +74,22 @@ def _transcribe_audio_file(audio_path: str, groq_key: str, language: str) -> lis
             timestamp_granularities=["segment"],
             language=language,
         )
-    return [
-        {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
-        for seg in response.segments
-    ]
+    segs = response.segments or []
+    result = []
+    for seg in segs:
+        if isinstance(seg, dict):
+            result.append({
+                "start": float(seg["start"]),
+                "end": float(seg["end"]),
+                "text": str(seg.get("text", "")).strip(),
+            })
+        else:
+            result.append({
+                "start": float(seg.start),
+                "end": float(seg.end),
+                "text": str(seg.text).strip(),
+            })
+    return result
 
 
 def transcribe_video(

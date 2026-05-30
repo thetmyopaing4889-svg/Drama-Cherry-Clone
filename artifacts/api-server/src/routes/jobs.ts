@@ -21,8 +21,6 @@ for (const dir of [MULTER_TEMP, UPLOADS_TEMP, UPLOADS_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
-const jobApiKeys = new Map<number, { groq: string; gemini: string }>();
-
 const upload = multer({
   dest: MULTER_TEMP,
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -129,17 +127,17 @@ router.post("/jobs/start", async (req: Request, res: Response) => {
       status: "pending",
       progress: 0,
       stage: "Waiting to start",
+      groqKey,
+      geminiKey,
     })
     .returning();
-
-  jobApiKeys.set(job.id, { groq: groqKey, gemini: geminiKey });
 
   req.log.info({ jobId: job.id, movieTitle, language }, "Job created and queued");
 
   res.status(201).json(formatJob(job));
 });
 
-router.get("/jobs/:id/keys", (req: Request, res: Response) => {
+router.get("/jobs/:id/keys", async (req: Request, res: Response) => {
   const ip = req.ip ?? req.socket.remoteAddress ?? "";
   const isLocal = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(ip);
   if (!isLocal) {
@@ -153,13 +151,17 @@ router.get("/jobs/:id/keys", (req: Request, res: Response) => {
     return;
   }
 
-  const keys = jobApiKeys.get(id);
-  if (!keys) {
-    res.status(404).json({ error: "API keys not found for this job. They may have expired or the job was already completed." });
+  const [job] = await db
+    .select({ groqKey: jobsTable.groqKey, geminiKey: jobsTable.geminiKey })
+    .from(jobsTable)
+    .where(eq(jobsTable.id, id));
+
+  if (!job || !job.groqKey || !job.geminiKey) {
+    res.status(404).json({ error: "API keys not found for this job." });
     return;
   }
 
-  res.json(keys);
+  res.json({ groq: job.groqKey, gemini: job.geminiKey });
 });
 
 router.get("/jobs", async (req, res) => {
@@ -225,7 +227,6 @@ router.delete("/jobs/:id", async (req, res) => {
   if (!parsed.success) { res.status(400).json({ error: "Invalid id" }); return; }
 
   await db.delete(jobsTable).where(eq(jobsTable.id, parsed.data.id));
-  jobApiKeys.delete(parsed.data.id);
   res.status(204).send();
 });
 
@@ -248,7 +249,6 @@ router.patch("/jobs/:id/progress", async (req, res) => {
   if (b.error !== undefined) updates.error = b.error;
   if (b.status === "completed" || b.status === "failed") {
     updates.completedAt = new Date();
-    jobApiKeys.delete(paramParsed.data.id);
   }
 
   const [job] = await db

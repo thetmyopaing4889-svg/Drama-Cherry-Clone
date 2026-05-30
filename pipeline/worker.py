@@ -62,9 +62,25 @@ def connect_with_retry(max_attempts: int = 10) -> psycopg2.extensions.connection
     sys.exit(1)
 
 
+def reset_stale_jobs(conn) -> None:
+    """Reset any jobs stuck in 'processing' back to 'pending' on startup."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE jobs
+            SET status = 'pending', progress = 0, stage = 'Requeued after worker restart'
+            WHERE status = 'processing'
+            """,
+        )
+        count = cur.rowcount
+    if count > 0:
+        print(f"[worker] Reset {count} stale 'processing' job(s) back to 'pending'.", flush=True)
+
+
 def main():
     print("[worker] Cherry Drama pipeline worker started.", flush=True)
     conn = connect_with_retry()
+    reset_stale_jobs(conn)
 
     while True:
         try:

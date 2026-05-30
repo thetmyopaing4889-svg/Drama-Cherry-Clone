@@ -15,6 +15,8 @@ export const jobsTable = pgTable("jobs", {
   durationSeconds: integer("duration_seconds"),
   recommendedDuration: integer("recommended_duration"),
   error: text("error"),
+  groqKey: text("groq_key"),
+  geminiKey: text("gemini_key"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
 });

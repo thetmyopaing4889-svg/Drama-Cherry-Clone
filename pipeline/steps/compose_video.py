@@ -21,6 +21,43 @@ import glob
 LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../assets/logo.jpg")
 INTRO_DURATION = 5
 HOOK_DURATION = 15
+SPEED_FACTOR = 0.97  # setpts=0.97*PTS gives 1/0.97 ≈ 3% speed-up
+
+
+def _fmt_ts(t: float) -> str:
+    h = int(t // 3600)
+    m = int((t % 3600) // 60)
+    s = int(t % 60)
+    ms = int((t % 1) * 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _generate_recap_srt(script: list[dict], recap_srt_path: str) -> None:
+    """
+    Write an SRT file with narrator text timed to match the assembled recap video.
+
+    Assembled timeline:
+      [0, HOOK_DURATION)            — hook clip (no subtitle)
+      [HOOK_DURATION, +INTRO_DURATION) — intro slide (no subtitle)
+      [HOOK_DURATION+INTRO_DURATION, …) — scene clips, each sped up by SPEED_FACTOR
+    """
+    lines: list[str] = []
+    current = float(HOOK_DURATION + INTRO_DURATION)
+
+    for i, seg in enumerate(script, 1):
+        clip_start = float(seg.get("clip_start", 0))
+        clip_end = float(seg.get("clip_end", clip_start + 10))
+        clip_dur = max(0.5, clip_end - clip_start) * SPEED_FACTOR
+
+        lines.append(str(i))
+        lines.append(f"{_fmt_ts(current)} --> {_fmt_ts(current + clip_dur)}")
+        lines.append(seg.get("text", "").strip())
+        lines.append("")
+
+        current += clip_dur
+
+    with open(recap_srt_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -354,10 +391,12 @@ def compose_full_video(
         try: os.unlink(p)
         except OSError: pass
 
-    # ── 6. Burn subtitles ─────────────────────────────────────────────────────
+    # ── 6. Burn subtitles (narrator text timed to recap video) ────────────────
+    recap_srt_path = os.path.join(temp_dir, "recap.srt")
+    _generate_recap_srt(script, recap_srt_path)
     with_subs = os.path.join(temp_dir, "with_subs.mp4")
     try:
-        burn_subtitles(assembled, srt_path, with_subs)
+        burn_subtitles(assembled, recap_srt_path, with_subs)
         os.unlink(assembled)
     except RuntimeError as exc:
         # Subtitle burning is best-effort — fall back to no subtitles
