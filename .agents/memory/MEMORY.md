@@ -1,0 +1,1 @@
+- [Cherry Drama setup](cherry-drama-setup.md) — api-zod must export only generated/api (not types/) to avoid duplicate Zod schema conflicts; always run typecheck:libs before restarting api-server.

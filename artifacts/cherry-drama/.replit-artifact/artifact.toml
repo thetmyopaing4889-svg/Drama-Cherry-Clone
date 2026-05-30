@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/cherry-drama"
+title = "Cherry Drama"
+version = "1.0.0"
+id = "artifacts/cherry-drama"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/cherry-drama" ]
+localPort = 18262
+
+[services.development]
+run = "pnpm --filter @workspace/cherry-drama run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/cherry-drama", "run", "build" ]
+publicDir = "artifacts/cherry-drama/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/cherry-drama/*"
+to = "/cherry-drama/index.html"
+
+[services.env]
+PORT = "18262"
+BASE_PATH = "/cherry-drama"

@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: jobs
+    description: Recap job operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,106 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /jobs:
+    get:
+      operationId: listJobs
+      tags: [jobs]
+      summary: List all jobs
+      responses:
+        "200":
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+    post:
+      operationId: createJob
+      tags: [jobs]
+      summary: Create a new job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobBody"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+  /jobs/stats:
+    get:
+      operationId: getJobStats
+      tags: [jobs]
+      summary: Get job statistics
+      responses:
+        "200":
+          description: Job stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStats"
+  /jobs/{id}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get a single job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Job found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteJob
+      tags: [jobs]
+      summary: Delete a job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+  /jobs/{id}/progress:
+    patch:
+      operationId: updateJobProgress
+      tags: [jobs]
+      summary: Update job progress
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateJobProgressBody"
+      responses:
+        "200":
+          description: Updated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +135,127 @@ components:
           type: string
       required:
         - status
-
+    Job:
+      type: object
+      properties:
+        id:
+          type: integer
+        movieTitle:
+          type: string
+        language:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        progress:
+          type: integer
+        stage:
+          type: string
+        outputUrl:
+          type: string
+          nullable: true
+        thumbnailUrl:
+          type: string
+          nullable: true
+        durationSeconds:
+          type: integer
+          nullable: true
+        recommendedDuration:
+          type: integer
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - movieTitle
+        - language
+        - status
+        - progress
+        - stage
+        - createdAt
+    CreateJobBody:
+      type: object
+      properties:
+        movieTitle:
+          type: string
+        language:
+          type: string
+        videoFilename:
+          type: string
+          nullable: true
+      required:
+        - movieTitle
+        - language
+    UpdateJobProgressBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        progress:
+          type: integer
+        stage:
+          type: string
+        outputUrl:
+          type: string
+          nullable: true
+        thumbnailUrl:
+          type: string
+          nullable: true
+        durationSeconds:
+          type: integer
+          nullable: true
+        recommendedDuration:
+          type: integer
+          nullable: true
+        error:
+          type: string
+          nullable: true
+    JobStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        completed:
+          type: integer
+        processing:
+          type: integer
+        failed:
+          type: integer
+        pending:
+          type: integer
+      required:
+        - total
+        - completed
+        - processing
+        - failed
+        - pending
+    GetJobParams:
+      type: object
+      properties:
+        id:
+          type: integer
+      required:
+        - id
+    DeleteJobParams:
+      type: object
+      properties:
+        id:
+          type: integer
+      required:
+        - id
+    UpdateJobProgressParams:
+      type: object
+      properties:
+        id:
+          type: integer
+      required:
+        - id
