@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -247,9 +247,9 @@ export default function UploadPage() {
             <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
             <div>
               <strong>API keys missing:</strong> {missingKeys.join(", ")}.{" "}
-              <a href="/settings" className="underline hover:text-amber-200 transition-colors">
+              <Link href="/settings" className="underline hover:text-amber-200 transition-colors">
                 Go to Settings to add them
-              </a>{" "}
+              </Link>{" "}
               before uploading.
             </div>
           </div>

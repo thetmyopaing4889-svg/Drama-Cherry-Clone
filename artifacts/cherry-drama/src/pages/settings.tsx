@@ -82,7 +82,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="flex items-center gap-4 mb-8 p-4 bg-card/40 rounded-xl border border-border">
-          <img src="/cherry-drama-logo.jpg" alt="Cherry Drama" className="h-16 w-16 rounded-xl object-cover border border-primary/30" onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+          <img src={`${import.meta.env.BASE_URL}cherry-drama-logo.jpg`} alt="Cherry Drama" className="h-16 w-16 rounded-xl object-cover border border-primary/30" onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
           <div>
             <div className="font-bold text-white text-lg">Cherry Drama</div>
             <div className="text-sm text-muted-foreground">Myanmar &amp; Japanese Drama Recap Channel</div>
