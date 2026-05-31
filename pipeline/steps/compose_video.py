@@ -6,7 +6,7 @@ Output structure:
   [0:15–0:20]  Logo intro (5s)    — Cherry Drama logo + movie title on dark bg
   [0:20–END]   Recap segments     — Scene clips + narrator TTS audio
                                      + burned-in subtitles
-                                     + logo corner watermark
+                                     + animated logo corner watermark
 
 Copyright-safe transforms applied to each clip:
   - Speed: +3%  (setpts=0.97*PTS + atempo=1.03)
@@ -18,10 +18,24 @@ import json
 import subprocess
 import glob
 
-LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../assets/logo.jpg")
+ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../assets")
+LOGO_PATH = os.path.join(ASSETS_DIR, "logo.jpg")
+FONT_MYANMAR = os.path.join(ASSETS_DIR, "NotoSansMyanmar-Regular.ttf")
+FONT_JAPANESE = os.path.join(ASSETS_DIR, "NotoSansCJKjp-Regular.otf")
+FONT_FALLBACK = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
 INTRO_DURATION = 5
 HOOK_DURATION = 15
 SPEED_FACTOR = 0.97  # setpts=0.97*PTS gives 1/0.97 ≈ 3% speed-up
+
+
+def _font_for_language(language: str) -> str:
+    """Return path to the best font for the given language."""
+    if language == "myanmar" and os.path.exists(FONT_MYANMAR):
+        return FONT_MYANMAR
+    if language == "japanese" and os.path.exists(FONT_JAPANESE):
+        return FONT_JAPANESE
+    return FONT_FALLBACK
 
 
 def _fmt_ts(t: float) -> str:
@@ -125,10 +139,9 @@ def create_logo_intro(movie_title: str, temp_dir: str) -> str:
     Returns path to the intro .mp4 file.
     """
     output_path = os.path.join(temp_dir, "intro.mp4")
+    safe_title = movie_title.replace("'", "\\'").replace(":", "\\:")
 
     if os.path.exists(LOGO_PATH):
-        # Scale logo to max 400px wide, overlay on colored background with title
-        safe_title = movie_title.replace("'", "\\'").replace(":", "\\:")
         _run(
             [
                 "ffmpeg", "-y",
@@ -153,8 +166,6 @@ def create_logo_intro(movie_title: str, temp_dir: str) -> str:
             "logo intro",
         )
     else:
-        # Fallback: colored background with title only
-        safe_title = movie_title.replace("'", "\\'").replace(":", "\\:")
         _run(
             [
                 "ffmpeg", "-y",
@@ -162,7 +173,7 @@ def create_logo_intro(movie_title: str, temp_dir: str) -> str:
                 "-i", f"color=c=#1a0a0f:s=1920x1080:d={INTRO_DURATION}",
                 "-vf",
                 (
-                    f"drawtext=text='Cherry Drama':"
+                    "drawtext=text='Cherry Drama':"
                     "fontsize=36:fontcolor=#C2185B:x=(w-text_w)/2:y=(h-text_h)/2-60:"
                     "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf,"
                     f"drawtext=text='{safe_title}':"
@@ -252,20 +263,33 @@ def replace_audio(video_path: str, audio_path: str, output_path: str) -> None:
     )
 
 
-def burn_subtitles(video_path: str, srt_path: str, output_path: str) -> None:
-    """Burn SRT subtitles into the video."""
-    safe_srt = srt_path.replace("\\", "/").replace("'", "\\'").replace(":", "\\:")
+def burn_subtitles(video_path: str, srt_path: str, output_path: str, language: str = "myanmar") -> None:
+    """
+    Burn SRT subtitles into the video using the correct font for the language.
+    Myanmar text uses NotoSansMyanmar; Japanese uses NotoSansCJK.
+    """
+    font_path = _font_for_language(language)
+    font_name = (
+        "Noto Sans Myanmar" if language == "myanmar" and os.path.exists(FONT_MYANMAR)
+        else "Noto Sans CJK JP" if language == "japanese" and os.path.exists(FONT_JAPANESE)
+        else "DejaVu Sans"
+    )
+
+    # Escape path for FFmpeg filter string
+    safe_srt = srt_path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+
     _run(
         [
             "ffmpeg", "-y",
             "-i", video_path,
             "-vf",
             (
-                f"subtitles='{safe_srt}':"
-                "force_style='FontName=DejaVu Sans,FontSize=24,"
+                f"subtitles='{safe_srt}'"
+                f":fontsdir='{ASSETS_DIR}'"
+                f":force_style='FontName={font_name},FontSize=28,"
                 "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
                 "BackColour=&H80000000,Bold=1,Outline=2,Shadow=1,"
-                "Alignment=2,MarginV=30'"
+                "Alignment=2,MarginV=35'"
             ),
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "copy",
@@ -277,13 +301,19 @@ def burn_subtitles(video_path: str, srt_path: str, output_path: str) -> None:
 
 def add_logo_watermark(video_path: str, output_path: str) -> None:
     """
-    Overlay Cherry Drama logo as a corner watermark (bottom-right, 70% opacity).
+    Overlay Cherry Drama logo as an animated corner watermark.
+    The logo gently floats (Lissajous motion) in the bottom-right corner.
     If logo file doesn't exist, copies the video unchanged.
     """
     if not os.path.exists(LOGO_PATH):
         import shutil
         shutil.copy2(video_path, output_path)
         return
+
+    # Gentle floating animation: ±10px horizontal, ±6px vertical at different frequencies
+    # Stays comfortably within the corner — never goes out of frame
+    x_expr = "W-w-20+10*sin(t*0.7)"
+    y_expr = "H-h-20+6*sin(t*0.5+1.2)"
 
     _run(
         [
@@ -293,15 +323,15 @@ def add_logo_watermark(video_path: str, output_path: str) -> None:
             "-filter_complex",
             (
                 "[1:v]scale=120:-1,format=rgba,"
-                "colorchannelmixer=aa=0.7[logo];"
-                "[0:v][logo]overlay=W-w-20:H-h-20[v]"
+                "colorchannelmixer=aa=0.75[logo];"
+                f"[0:v][logo]overlay={x_expr}:{y_expr}[v]"
             ),
             "-map", "[v]", "-map", "0:a",
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "copy",
             output_path,
         ],
-        "logo watermark",
+        "animated logo watermark",
     )
 
 
@@ -311,11 +341,11 @@ def compose_full_video(
     source_video: str,
     script: list[dict],
     audio_segments: list[str],
-    srt_path: str,
     movie_title: str,
     hook_timestamp: float,
     temp_dir: str,
     output_path: str,
+    language: str = "myanmar",
 ) -> None:
     """
     Compose the full Cherry Drama recap video.
@@ -324,11 +354,11 @@ def compose_full_video(
         source_video:    Path to the original video file.
         script:          List of {text, clip_start, clip_end, duration} dicts.
         audio_segments:  List of TTS audio file paths (one per script segment).
-        srt_path:        Path to the full transcript SRT (for subtitle overlay).
         movie_title:     Title used in the intro slide.
         hook_timestamp:  Timestamp of the dramatic hook clip (seconds).
         temp_dir:        Temporary directory for intermediate files.
         output_path:     Where to save the final recap.mp4.
+        language:        "myanmar" or "japanese" — controls subtitle font.
     """
     clips_dir = os.path.join(temp_dir, "clips")
     os.makedirs(clips_dir, exist_ok=True)
@@ -391,20 +421,19 @@ def compose_full_video(
         try: os.unlink(p)
         except OSError: pass
 
-    # ── 6. Burn subtitles (narrator text timed to recap video) ────────────────
+    # ── 6. Burn narrator subtitles (timed to recap video) ────────────────────
     recap_srt_path = os.path.join(temp_dir, "recap.srt")
     _generate_recap_srt(script, recap_srt_path)
     with_subs = os.path.join(temp_dir, "with_subs.mp4")
     try:
-        burn_subtitles(assembled, recap_srt_path, with_subs)
+        burn_subtitles(assembled, recap_srt_path, with_subs, language=language)
         os.unlink(assembled)
     except RuntimeError as exc:
-        # Subtitle burning is best-effort — fall back to no subtitles
         print(f"[compose_video] Subtitle burn failed (continuing without): {exc}", flush=True)
         import shutil
         shutil.move(assembled, with_subs)
 
-    # ── 7. Add logo corner watermark ──────────────────────────────────────────
+    # ── 7. Animated logo corner watermark ────────────────────────────────────
     add_logo_watermark(with_subs, output_path)
     try: os.unlink(with_subs)
     except OSError: pass

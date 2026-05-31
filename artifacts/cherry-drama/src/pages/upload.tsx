@@ -9,7 +9,7 @@ import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
 import {
-  UploadCloud, FileVideo, Sparkles, AlertCircle, CheckCircle2, Loader2,
+  UploadCloud, FileVideo, Sparkles, AlertCircle, Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -19,15 +19,6 @@ const STORAGE_KEYS = {
   groq: "GROQ_API_KEY",
   gemini: "GEMINI_API_KEY",
 } as const;
-
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsText(file, "utf-8");
-  });
-}
 
 function getApiKeys() {
   return {
@@ -56,7 +47,6 @@ export default function UploadPage() {
   const [movieTitle, setMovieTitle] = useState("");
   const [language, setLanguage] = useState<"myanmar" | "japanese">("myanmar");
   const [file, setFile] = useState<File | null>(null);
-  const [srtFile, setSrtFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [uploadPct, setUploadPct] = useState(0);
@@ -64,7 +54,6 @@ export default function UploadPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const srtInputRef = useRef<HTMLInputElement>(null);
   const cancelRef = useRef(false);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -197,17 +186,6 @@ export default function UploadPage() {
 
     setPhase("starting");
 
-    let srtContent: string | undefined;
-    if (srtFile) {
-      try {
-        srtContent = await readFileAsText(srtFile);
-      } catch {
-        setErrorMsg("Failed to read SRT file. Please try again.");
-        setPhase("idle");
-        return;
-      }
-    }
-
     try {
       const resp = await fetch("/api/jobs/start", {
         method: "POST",
@@ -222,7 +200,6 @@ export default function UploadPage() {
           language,
           filename: file.name,
           totalChunks: Math.ceil(file.size / CHUNK_SIZE),
-          ...(srtContent ? { srtContent } : {}),
         }),
       });
 
@@ -406,50 +383,6 @@ export default function UploadPage() {
                   </div>
 
                   <div className="space-y-3">
-                    <Label className="text-base">
-                      Subtitle File{" "}
-                      <span className="text-xs font-normal text-muted-foreground ml-1">
-                        — optional, skips AI transcription (faster + saves Groq quota)
-                      </span>
-                    </Label>
-                    <input
-                      type="file"
-                      ref={srtInputRef}
-                      accept=".srt"
-                      className="hidden"
-                      onChange={e => {
-                        const f = e.target.files?.[0] ?? null;
-                        setSrtFile(f);
-                        setErrorMsg(null);
-                      }}
-                    />
-                    {srtFile ? (
-                      <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-green-600/30 bg-green-900/10">
-                        <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
-                        <span className="text-sm text-green-300 flex-1 truncate">{srtFile.name}</span>
-                        <button
-                          type="button"
-                          className="text-xs text-muted-foreground hover:text-white"
-                          onClick={() => { setSrtFile(null); if (srtInputRef.current) srtInputRef.current.value = ""; }}
-                          disabled={isRunning}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => srtInputRef.current?.click()}
-                        disabled={isRunning}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-dashed border-border hover:border-primary/40 bg-background/30 hover:bg-card/60 transition-all text-sm text-muted-foreground disabled:opacity-50"
-                      >
-                        <UploadCloud className="h-4 w-4 shrink-0" />
-                        <span>Upload .srt subtitle file (optional)</span>
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
                     <Label className="text-base">Output Language</Label>
                     <div className="grid grid-cols-2 gap-4">
                       <button
@@ -503,11 +436,10 @@ export default function UploadPage() {
                 <CardContent className="space-y-3 text-xs text-muted-foreground">
                   {[
                     ["1", "Audio extract + Whisper transcription"],
-                    ["2", "Key frame scene analysis (Gemini)"],
-                    ["3", "Recap script generation (Gemini 2.5)"],
-                    ["4", "Narrator voice synthesis (Edge TTS)"],
-                    ["5", "Video assembly + subtitles (FFmpeg)"],
-                    ["6", "Thumbnail generation"],
+                    ["2", "Scene analysis + recap script (1 Gemini call)"],
+                    ["3", "Narrator voice synthesis (Edge TTS)"],
+                    ["4", "Video assembly + subtitles (FFmpeg)"],
+                    ["5", "Thumbnail generation"],
                   ].map(([n, label]) => (
                     <div key={n} className="flex items-center gap-2">
                       <span className="h-5 w-5 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[10px] font-bold shrink-0">
