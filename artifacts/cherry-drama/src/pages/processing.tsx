@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trash2, Clock, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Trash2, Clock, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 function StatusBadge({ status }: { status: string }) {
@@ -65,6 +65,8 @@ export default function ProcessingPage() {
     return () => clearInterval(id);
   }, [jobs, queryClient]);
 
+  const [retrying, setRetrying] = useState<number | null>(null);
+
   const handleDelete = (id: number) => {
     deleteJob.mutate({ id }, {
       onSuccess: () => {
@@ -72,6 +74,24 @@ export default function ProcessingPage() {
         toast({ title: "Job deleted" });
       }
     });
+  };
+
+  const handleRetry = async (id: number) => {
+    setRetrying(id);
+    try {
+      const resp = await fetch(`/api/jobs/${id}/retry`, { method: "POST" });
+      const body = await resp.json();
+      if (!resp.ok) {
+        toast({ title: "Cannot retry", description: (body as { error?: string }).error ?? "Unknown error", variant: "destructive" });
+      } else {
+        queryClient.invalidateQueries({ queryKey: getListJobsQueryKey() });
+        toast({ title: "Job requeued", description: "The job will start processing again shortly." });
+      }
+    } catch {
+      toast({ title: "Network error", description: "Could not reach the server. Try again.", variant: "destructive" });
+    } finally {
+      setRetrying(null);
+    }
   };
 
   const activeJobs = jobs?.filter(j => j.status === "pending" || j.status === "processing") ?? [];
@@ -154,6 +174,20 @@ export default function ProcessingPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <StatusBadge status={job.status} />
+                        {job.status === "failed" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-primary/70 hover:text-primary hover:bg-primary/10"
+                            onClick={() => handleRetry(job.id)}
+                            disabled={retrying === job.id}
+                            title="Retry this job"
+                          >
+                            {retrying === job.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <RefreshCw className="h-4 w-4" />}
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(job.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>

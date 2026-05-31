@@ -225,6 +225,49 @@ router.post("/jobs", async (req, res) => {
   res.status(201).json(formatJob(job));
 });
 
+router.post("/jobs/:id/retry", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+
+  const [existing] = await db
+    .select({ status: jobsTable.status, groqKey: jobsTable.groqKey, geminiKey: jobsTable.geminiKey })
+    .from(jobsTable)
+    .where(eq(jobsTable.id, id));
+
+  if (!existing) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+  if (existing.status !== "failed") {
+    res.status(409).json({ error: "Only failed jobs can be retried" });
+    return;
+  }
+  if (!existing.groqKey || !existing.geminiKey) {
+    res.status(422).json({ error: "API keys are missing — delete this job and re-upload with valid keys." });
+    return;
+  }
+
+  const [job] = await db
+    .update(jobsTable)
+    .set({
+      status: "pending",
+      progress: 0,
+      stage: "Waiting to start",
+      error: null,
+      outputUrl: null,
+      thumbnailUrl: null,
+      completedAt: null,
+    })
+    .where(eq(jobsTable.id, id))
+    .returning();
+
+  req.log.info({ jobId: id }, "Job requeued for retry");
+  res.json(formatJob(job));
+});
+
 router.delete("/jobs/:id", async (req, res) => {
   const parsed = DeleteJobParams.safeParse({ id: Number(req.params.id) });
   if (!parsed.success) { res.status(400).json({ error: "Invalid id" }); return; }
