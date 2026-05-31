@@ -118,6 +118,8 @@ router.post("/jobs/start", async (req: Request, res: Response) => {
     return;
   }
 
+  const srtContent = typeof req.body.srtContent === "string" ? req.body.srtContent.trim() : null;
+
   const [job] = await db
     .insert(jobsTable)
     .values({
@@ -129,6 +131,7 @@ router.post("/jobs/start", async (req: Request, res: Response) => {
       stage: "Waiting to start",
       groqKey,
       geminiKey,
+      srtContent: srtContent || null,
     })
     .returning();
 
@@ -161,7 +164,7 @@ router.get("/jobs/:id/keys", async (req: Request, res: Response) => {
     return;
   }
 
-  res.json({ groq: job.groqKey, gemini: job.geminiKey });
+  res.json({ groq: job.groqKey, gemini: job.geminiKey, srtContent: job.srtContent ?? null });
 });
 
 router.get("/jobs", async (req, res) => {

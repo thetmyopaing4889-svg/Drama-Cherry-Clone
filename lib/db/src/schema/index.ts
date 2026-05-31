@@ -17,6 +17,7 @@ export const jobsTable = pgTable("jobs", {
   error: text("error"),
   groqKey: text("groq_key"),
   geminiKey: text("gemini_key"),
+  srtContent: text("srt_content"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
 });

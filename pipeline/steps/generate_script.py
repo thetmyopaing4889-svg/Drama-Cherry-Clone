@@ -2,11 +2,13 @@
 generate_script.py — Gemini 2.5-flash scene analysis + recap script generation.
 
 Uses:
-  - Gemini Vision to describe key frames + nearby dialogue.
+  - Gemini Vision to describe ALL key frames in a SINGLE API call (avoids rate limits).
   - Gemini text model to generate the full narrator recap script as JSON.
+  - Exponential backoff on 429/RESOURCE_EXHAUSTED errors.
 """
 import json
 import re
+import time
 from google import genai
 from PIL import Image
 
@@ -15,13 +17,34 @@ GEMINI_MODEL = "gemini-2.5-flash"
 MAX_FRAMES_FOR_ANALYSIS = 10
 
 
+def _gemini_with_retry(client, model: str, contents, max_retries: int = 4):
+    """Call Gemini generate_content with retry on rate-limit (429) errors."""
+    for attempt in range(max_retries):
+        try:
+            return client.models.generate_content(model=model, contents=contents)
+        except Exception as exc:
+            err = str(exc)
+            is_rate_limit = "429" in err or "RESOURCE_EXHAUSTED" in err or "rate" in err.lower()
+            if is_rate_limit and attempt < max_retries - 1:
+                wait = 60 * (attempt + 1)  # 60 s, 120 s, 180 s
+                print(
+                    f"[generate_script] Gemini rate limit — waiting {wait}s "
+                    f"(attempt {attempt + 1}/{max_retries})…",
+                    flush=True,
+                )
+                time.sleep(wait)
+            else:
+                raise
+    raise RuntimeError("Gemini API: max retries exceeded on rate limit.")
+
+
 def analyze_scenes(
     frames: list[tuple[float, str]],
     segments: list[dict],
     gemini_key: str,
 ) -> str:
     """
-    Analyze key frames with Gemini Vision.
+    Analyze key frames with Gemini Vision using a SINGLE API call.
 
     Args:
         frames: [(timestamp_sec, image_path), ...]
@@ -29,35 +52,45 @@ def analyze_scenes(
     Returns:
         Combined scene description string.
     """
+    if not frames:
+        return ""
+
     client = genai.Client(api_key=gemini_key)
 
-    scene_parts: list[str] = []
+    # Build one prompt with all frames interleaved with text labels
+    contents: list = []
     for timestamp, img_path in frames[:MAX_FRAMES_FOR_ANALYSIS]:
-        img = Image.open(img_path).convert("RGB")
+        try:
+            img = Image.open(img_path).convert("RGB")
+        except Exception:
+            continue
 
         nearby = [
             s["text"] for s in segments
             if abs(s["start"] - timestamp) < 90
         ]
-        dialogue_ctx = " ".join(nearby[:6]).strip()
+        dialogue_ctx = " ".join(nearby[:4]).strip()[:200]
+        label = f"[Frame at minute {int(timestamp // 60)}]"
+        if dialogue_ctx:
+            label += f" Nearby dialogue: \"{dialogue_ctx}\""
+        contents.append(label)
+        contents.append(img)
 
-        prompt = (
-            f"This is a frame from minute {int(timestamp // 60)} of a movie/drama.\n"
-            f"Nearby dialogue: \"{dialogue_ctx}\"\n"
-            "Describe in 2-3 sentences: who is in the scene, what is happening, "
-            "and the emotional tone. Be concise and factual."
-        )
+    if not contents:
+        return ""
 
-        try:
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=[prompt, img],
-            )
-            scene_parts.append(f"[Minute {int(timestamp // 60)}] {response.text.strip()}")
-        except Exception as exc:
-            print(f"[generate_script] Skipping frame at {timestamp}s due to error: {exc}", flush=True)
+    contents.append(
+        "For each frame above, write ONE sentence describing: "
+        "who is in the scene, what is happening, and the emotional tone. "
+        "Format strictly as: [Minute X] <your description>"
+    )
 
-    return "\n\n".join(scene_parts)
+    try:
+        response = _gemini_with_retry(client, GEMINI_MODEL, contents)
+        return response.text.strip()
+    except Exception as exc:
+        print(f"[generate_script] Scene analysis failed (continuing): {exc}", flush=True)
+        return ""
 
 
 def _extract_json(text: str) -> str:
@@ -85,14 +118,14 @@ def generate_recap_script(
 
     Returns dict:
     {
-      "hook_timestamp": float,          # seconds into video for the hook clip
-      "recommended_duration": int,      # total recap length in seconds
+      "hook_timestamp": float,
+      "recommended_duration": int,
       "script": [
         {
-          "text": str,                  # narrator text
-          "clip_start": float,          # timestamp in original video
+          "text": str,
+          "clip_start": float,
           "clip_end": float,
-          "duration": float             # clip_end - clip_start
+          "duration": float
         },
         ...
       ],
@@ -145,11 +178,14 @@ Rules:
 - outro_text: in target language, encourage subscription
 """
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-    )
-    raw = response.text
+    response = _gemini_with_retry(client, GEMINI_MODEL, prompt)
+
+    try:
+        raw = response.text
+    except Exception as exc:
+        raise ValueError(
+            f"Gemini response has no text content (possibly blocked by safety filters): {exc}"
+        ) from exc
 
     try:
         return json.loads(_extract_json(raw))

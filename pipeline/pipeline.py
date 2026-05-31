@@ -13,8 +13,8 @@ from progress import update_progress, get_job_api_keys
 from steps.transcribe import transcribe_video, segments_to_srt
 from steps.extract_frames import extract_key_frames
 from steps.generate_script import analyze_scenes, generate_recap_script
-from steps.tts_myanmar import generate_myanmar_audio  # no API key needed (edge-tts)
-from steps.tts_japanese import generate_japanese_audio  # no API key needed (edge-tts)
+from steps.tts_myanmar import generate_myanmar_audio
+from steps.tts_japanese import generate_japanese_audio
 from steps.compose_video import compose_full_video
 from steps.generate_thumbnail import generate_thumbnail
 
@@ -50,15 +50,28 @@ def run_pipeline(job_id: int, movie_title: str, language: str, video_filename: s
 
         groq_key = keys["groq"]
         gemini_key = keys["gemini"]
+        provided_srt = keys.get("srt_content", "").strip()
 
         # ── Stage 1: Transcription (2 → 20%) ───────────────────────────────
-        update_progress(job_id, "processing", 5, "Transcribing audio")
-        segments = transcribe_video(video_path, groq_key, temp_dir, language)
-        srt_text = segments_to_srt(segments)
         srt_path = os.path.join(temp_dir, "transcript.srt")
-        with open(srt_path, "w", encoding="utf-8") as f:
-            f.write(srt_text)
-        update_progress(job_id, "processing", 20, "Transcription complete")
+
+        if provided_srt:
+            # Hybrid mode: user-provided SRT — skip Whisper transcription
+            print(f"[pipeline] Job {job_id}: using user-provided SRT ({len(provided_srt)} chars), skipping Whisper.", flush=True)
+            update_progress(job_id, "processing", 10, "Using provided subtitles")
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write(provided_srt)
+            # Parse SRT into segments for script generation
+            segments = _parse_srt(provided_srt)
+            update_progress(job_id, "processing", 20, "Subtitles loaded")
+        else:
+            # Standard mode: Groq Whisper transcription
+            update_progress(job_id, "processing", 5, "Transcribing audio")
+            segments = transcribe_video(video_path, groq_key, temp_dir, language)
+            srt_text = segments_to_srt(segments)
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write(srt_text)
+            update_progress(job_id, "processing", 20, "Transcription complete")
 
         # ── Stage 2: Scene Analysis (20 → 35%) ─────────────────────────────
         update_progress(job_id, "processing", 22, "Extracting key frames")
@@ -137,3 +150,40 @@ def run_pipeline(job_id: int, movie_title: str, language: str, video_filename: s
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _parse_srt(srt_text: str) -> list[dict]:
+    """
+    Parse SRT file content into [{start, end, text}] segment list.
+    Timestamps are converted to seconds.
+    """
+    segments: list[dict] = []
+    blocks = srt_text.strip().split("\n\n")
+    for block in blocks:
+        lines = block.strip().splitlines()
+        if len(lines) < 3:
+            continue
+        # Line 0: index, Line 1: timestamps, Line 2+: text
+        ts_line = lines[1]
+        text = " ".join(lines[2:]).strip()
+        if " --> " not in ts_line:
+            continue
+        start_str, end_str = ts_line.split(" --> ", 1)
+        start = _srt_ts_to_seconds(start_str.strip())
+        end = _srt_ts_to_seconds(end_str.strip())
+        if start is not None and end is not None and text:
+            segments.append({"start": start, "end": end, "text": text})
+    return segments
+
+
+def _srt_ts_to_seconds(ts: str) -> float | None:
+    """Convert SRT timestamp (HH:MM:SS,mmm) to seconds."""
+    try:
+        ts = ts.replace(",", ".")
+        parts = ts.split(":")
+        h = int(parts[0])
+        m = int(parts[1])
+        s = float(parts[2])
+        return h * 3600 + m * 60 + s
+    except Exception:
+        return None
